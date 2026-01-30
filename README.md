@@ -15,7 +15,7 @@ the global reference frame.
 ## ✨ Main Features
 
 -   2D LiDAR scan simulation with configurable noise and field of view\
--   HDBSCAN-based obstacle clustering\
+-   DBSCAN-based obstacle clustering\
 -   Ego-motion compensation using rotation matrices\
 -   Multi-object tracking using Hungarian assignment and Kalman
     filtering\
@@ -30,7 +30,7 @@ the global reference frame.
 
 Pipeline:
 1. LiDAR simulation\
-2. HDBSCAN clustering\
+2. DBSCAN clustering\
 3. Coordinate transformation to world frame\
 4. Multi-object tracking with EKF\
 5. Relative-velocity and HySDG-ESD based classification\
@@ -42,9 +42,9 @@ Pipeline:
 
 AGV-Dynamic-Obstacle-Detection/ 
 
-├── HySDG_EKF_Hdbscan_Enhanced.py/
+├── HySDG_EKF_dbscan_Enhanced.py/
 
-├── AGV_MOVING_SYSTEM_HDBSCAN_Enhanced.py/
+├── AGV_MOVING_SYSTEM_DBSCAN_Enhanced.py/
 
 ├── README.md/
 
@@ -67,8 +67,8 @@ pip install -r requirements.txt
 ## 🚀 Run
 
 ``` bash
-1️⃣ HySDG_EKF_Hdbscan_Fast_Enhanced.py 😍👍
-2️⃣ AGV_MOVING_SYSTEM_HDBSCAN_Enhanced.py 😊
+1️⃣ HySDG_EKF_dbscan_Fast_Enhanced.py 😍👍
+2️⃣ AGV_MOVING_SYSTEM_DBSCAN_Enhanced.py 😊
 ```
 
 ------------------------------------------------------------------------
