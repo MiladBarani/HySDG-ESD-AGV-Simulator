@@ -15,7 +15,7 @@ the global reference frame.
 ## ✨ Main Features
 
 -   2D LiDAR scan simulation with configurable noise and field of view\
--   DBSCAN-based obstacle clustering\
+-   HDBSCAN-based obstacle clustering\
 -   Ego-motion compensation using rotation matrices\
 -   Multi-object tracking using Hungarian assignment and Kalman
     filtering\
@@ -29,7 +29,7 @@ the global reference frame.
 ## 🧠 Method Overview
 
 Pipeline: 1. LiDAR simulation\
-2. DBSCAN clustering\
+2. HDBSCAN clustering\
 3. Coordinate transformation to world frame\
 4. Multi-object tracking with EKF\
 5. Relative-velocity and HySDG-ESD based classification\
@@ -40,8 +40,8 @@ Pipeline: 1. LiDAR simulation\
 ## 📂 Repository Structure
 
 AGV-Dynamic-Obstacle-Detection/ 
-├── HySDG_ESD_Kalman_V4.py/
-├── AGV_Visual_With_Buttons.py/
+├── HySDG_EKF_Hdbscan_Enhanced.py/
+├── AGV_MOVING_SYSTEM_HDBSCAN_Enhanced.py/
 ├── README.md/
 ├── requirements.txt/
 ├── figures/
