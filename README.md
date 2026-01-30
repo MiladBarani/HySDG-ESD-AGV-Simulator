@@ -28,7 +28,8 @@ the global reference frame.
 
 ## 🧠 Method Overview
 
-Pipeline: 1. LiDAR simulation\
+Pipeline:
+1. LiDAR simulation\
 2. HDBSCAN clustering\
 3. Coordinate transformation to world frame\
 4. Multi-object tracking with EKF\
