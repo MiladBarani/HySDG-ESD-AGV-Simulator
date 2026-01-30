@@ -1,5 +1,5 @@
 # =========================
-# FINAL VERSION - با Rotation Matrix برای چرخش AGV
+# ENHANCED VERSION - با قابلیت export و API
 # =========================
 
 import numpy as np
@@ -40,20 +40,16 @@ class Obstacle:
     velocity_history: List[float]
 
 # =============================================================================
-# Extended Kalman Filter با مدل Constant Velocity
+# Extended Kalman Filter - با تشخیص سریع‌تر
 # =============================================================================
 
 class ExtendedKalmanFilterCV:
     """
-    Extended Kalman Filter با:
-    - Process noise محافظه‌کارانه
-    - Innovation gate برای outlier rejection
-    - Adaptive velocity damping
+    Extended Kalman Filter با تشخیص سریع‌تر موانع متحرک
     """
     def __init__(self, dt: float, process_noise: float = 0.05, measurement_noise: float = 0.2):
         self.dt = dt
         
-        # State transition matrix
         self.F = np.array([
             [1, 0, dt, 0],
             [0, 1, 0, dt],
@@ -61,32 +57,28 @@ class ExtendedKalmanFilterCV:
             [0, 0, 0, 1]
         ])
         
-        # Measurement matrix
         self.H = np.array([
             [1, 0, 0, 0],
             [0, 1, 0, 0]
         ])
         
-        # Process noise - بسیار محافظه‌کارانه برای موانع استاتیک
         q = process_noise
         self.Q = np.array([
             [q*dt**4/4, 0, q*dt**3/2, 0],
             [0, q*dt**4/4, 0, q*dt**3/2],
             [q*dt**3/2, 0, q*dt**2, 0],
             [0, q*dt**3/2, 0, q*dt**2]
-        ]) * 0.3  # کاهش بیشتر
+        ]) * 0.3
         
-        # Measurement noise
         self.R = np.eye(2) * measurement_noise
         
-        # State and covariance
         self.P = np.eye(4) * 5.0
         self.x = np.zeros((4, 1))
         self.initialized = False
         self.update_count = 0
         
-        # Innovation history برای تطبیق adaptive
         self.innovation_history = []
+        self.position_history = []  # ⭐ NEW: برای تخمین سرعت اولیه
 
     def predict(self):
         if not self.initialized:
@@ -99,55 +91,66 @@ class ExtendedKalmanFilterCV:
         
         if not self.initialized:
             self.x[0:2] = z
-            self.x[2:4] = 0  # فرض اولیه: ثابت
+            self.x[2:4] = 0  # سرعت اولیه صفر
             self.initialized = True
             self.update_count = 1
+            self.position_history = [z.copy()]  # ⭐ ذخیره موقعیت اول
             return self.x.copy()
         
         self.update_count += 1
+        
+        # ⭐⭐⭐ FIX 1: تخمین سرعت اولیه از 2 فریم اول
+        if self.update_count == 2:
+            # محاسبه سرعت واقعی از تغییر موقعیت
+            delta_pos = z - self.position_history[0]
+            estimated_vel = delta_pos / self.dt
+            self.x[2:4] = estimated_vel  # ⭐ استفاده از سرعت واقعی
+        
+        # ذخیره موقعیت برای فریم‌های اولیه
+        if len(self.position_history) < 3:
+            self.position_history.append(z.copy())
         
         # Innovation
         y = z - self.H @ self.x
         S = self.H @ self.P @ self.H.T + self.R
         
-        # Mahalanobis distance برای outlier rejection
         try:
             S_inv = np.linalg.inv(S)
             mahal_dist = np.sqrt(y.T @ S_inv @ y)[0, 0]
         except:
             mahal_dist = 0
         
-        # Innovation gate
-        if mahal_dist > 5.0:  # threshold
+        if mahal_dist > 5.0:
             return self.x.copy()
         
-        # Kalman gain
         K = self.P @ self.H.T @ S_inv
-        
-        # Update state
         self.x = self.x + K @ y
         
-        # ⭐⭐⭐ Adaptive velocity damping
-        # در فریم‌های اولیه و وقتی innovation کم است، سرعت را محدود کن
+        # ⭐⭐⭐ FIX 2: Damping کمتر محافظه‌کارانه
         self.innovation_history.append(np.linalg.norm(y))
         if len(self.innovation_history) > 10:
             self.innovation_history.pop(0)
         
         avg_innovation = np.mean(self.innovation_history) if self.innovation_history else 0
         
-        if self.update_count < 10:
-            # فریم‌های اولیه: فرض ثابت
-            damping = 0.05
-        elif avg_innovation < 0.1:
-            # Innovation کم: احتمالاً ثابت
-            damping = 0.2
+        if self.update_count <= 3:
+            # ⭐ فریم‌های اولیه: سرعت رو نگه دار (بدون damping شدید)
+            damping = 0.8  # بجای 0.05 → اجازه به رشد سرعت
+        elif self.update_count < 8:
+            # فریم‌های میانی
+            if avg_innovation < 0.08:
+                damping = 0.3  # بجای 0.2
+            else:
+                damping = 1.0
         else:
-            # Innovation زیاد: احتمالاً متحرک
-            damping = 1.0
+            # بعد از 8 فریم: رفتار عادی
+            if avg_innovation < 0.08:
+                damping = 0.2
+            else:
+                damping = 1.0
         
         self.x[2:4] *= damping
         
-        # Update covariance
         self.P = (np.eye(4) - K @ self.H) @ self.P
         
         return self.x.copy()
@@ -162,22 +165,11 @@ class ExtendedKalmanFilterCV:
 # =============================================================================
 
 def rotation_matrix_2d(theta: float) -> np.ndarray:
-    """
-    ماتریس چرخش 2D
-    theta: زاویه به رادیان
-    """
     c, s = np.cos(theta), np.sin(theta)
     return np.array([[c, -s], [s, c]])
 
 def transform_to_world_frame(pos_agv_frame: np.ndarray, agv_pos: np.ndarray, 
                             agv_heading: float) -> np.ndarray:
-    """
-    تبدیل موقعیت از AGV frame به World frame
-    
-    pos_agv_frame: موقعیت در coordinate system AGV
-    agv_pos: موقعیت AGV در world
-    agv_heading: جهت AGV (رادیان)
-    """
     R = rotation_matrix_2d(agv_heading)
     pos_world = agv_pos + R @ pos_agv_frame
     return pos_world
@@ -226,7 +218,7 @@ class LidarProcessor:
         return clusters
 
 # =============================================================================
-# Multi-Object Tracker با Rotation-Aware Transform
+# Multi-Object Tracker
 # =============================================================================
 
 class MultiObjectTracker:
@@ -235,40 +227,29 @@ class MultiObjectTracker:
         self.max_distance = max_distance
         self.max_age = max_age
         self.obstacles: List[Obstacle] = []
+        self.kalman_filters = {}
         self.next_id = 0
         self.current_time = 0
-        self.kalman_filters = {}
-
-    def predict_all(self):
-        for obs in self.obstacles:
-            if obs.id in self.kalman_filters:
-                self.kalman_filters[obs.id].predict()
 
     def update(self, clusters: List[List[LidarPoint]], agv_pos: np.ndarray, 
                agv_vel: np.ndarray, agv_heading: float):
-        """
-        ⭐⭐⭐ با اضافه شدن agv_heading برای تبدیل صحیح coordinate
-        """
         self.current_time += 1
-        self.predict_all()
+
+        for kf in self.kalman_filters.values():
+            kf.predict()
 
         if not clusters:
             self._remove_old_obstacles()
             return
 
-        # ⭐⭐⭐ تبدیل cluster centers به world frame با rotation
         cluster_centers_world = []
         for cluster in clusters:
-            # محاسبه center در AGV frame
             x_mean = np.mean([p.x for p in cluster])
             y_mean = np.mean([p.y for p in cluster])
             center_agv_frame = np.array([x_mean, y_mean])
-            
-            # ⭐⭐⭐ تبدیل به world frame با در نظر گرفتن rotation
             center_world = transform_to_world_frame(center_agv_frame, agv_pos, agv_heading)
             cluster_centers_world.append(center_world)
 
-        # Hungarian Algorithm
         if self.obstacles and cluster_centers_world:
             cost_matrix = np.zeros((len(self.obstacles), len(cluster_centers_world)))
             
@@ -305,11 +286,9 @@ class MultiObjectTracker:
         if obs.id not in self.kalman_filters:
             self.kalman_filters[obs.id] = ExtendedKalmanFilterCV(self.dt)
 
-        # ⭐ Kalman با موقعیت world frame
         self.kalman_filters[obs.id].update(center_world)
         pos_world, vel_world = self.kalman_filters[obs.id].get_state()
 
-        # محاسبه d_eq و d_dot
         result = self._compute_hysdg_esd(pos_world, vel_world, agv_pos, agv_vel, obs.d_eq)
 
         obs.center = pos_world
@@ -318,17 +297,15 @@ class MultiObjectTracker:
         obs.d_eq = result['d_eq']
         obs.d_dot = result['d_dot']
         
-        # ذخیره تاریخچه
         vel_magnitude = np.linalg.norm(vel_world)
         obs.velocity_history.append(vel_magnitude)
-        if len(obs.velocity_history) > 20:  # افزایش history
+        if len(obs.velocity_history) > 20:
             obs.velocity_history.pop(0)
         
         obs.state_history.append(result['state'])
         if len(obs.state_history) > 20:
             obs.state_history.pop(0)
         
-        # تصمیم‌گیری
         obs.state = self._advanced_classification(obs)
         
         obs.last_seen = self.current_time
@@ -336,19 +313,34 @@ class MultiObjectTracker:
 
     def _advanced_classification(self, obs: Obstacle) -> ObstacleState:
         """
-        ⭐⭐⭐ الگوریتم تصمیم‌گیری محافظه‌کارانه با فیلتر میانگین متحرک
+        ⭐⭐⭐ الگوریتم اصلاح شده با تشخیص سریع‌تر
         """
-        if len(obs.velocity_history) < 8:
+        # ⭐⭐⭐ FIX 3: کاهش فریم‌های مورد نیاز از 8 به 4
+        if len(obs.velocity_history) < 4:  # بجای 8 → تشخیص سریع‌تر
             return ObstacleState.UNKNOWN
         
-        # آمار سرعت
-        recent_velocities = obs.velocity_history[-15:]  # 1.5 ثانیه اخیر
+        # ⭐⭐⭐ FIX 4: برای فریم‌های اولیه از آستانه کمتر استفاده کن
+        if len(obs.velocity_history) < 8:
+            # تصمیم سریع بر اساس 4-7 فریم اول
+            recent_velocities = obs.velocity_history[-4:]
+            avg_velocity = np.mean(recent_velocities)
+            max_velocity = np.max(recent_velocities)
+            
+            # آستانه‌های تندتر برای فریم‌های اولیه
+            if avg_velocity > 0.35 or max_velocity > 0.50:  # کمتر از آستانه عادی
+                return ObstacleState.DYNAMIC
+            elif avg_velocity < 0.15 and max_velocity < 0.25:
+                return ObstacleState.STATIC
+            else:
+                return ObstacleState.UNKNOWN  # هنوز مطمئن نیستیم
+        
+        # ⭐ بعد از 8 فریم: تصمیم‌گیری دقیق‌تر
+        recent_velocities = obs.velocity_history[-15:]
         avg_velocity = np.mean(recent_velocities)
         std_velocity = np.std(recent_velocities)
         max_velocity = np.max(recent_velocities)
         min_velocity = np.min(recent_velocities)
         
-        # رای‌گیری از تاریخچه
         if len(obs.state_history) >= 8:
             recent_history = obs.state_history[-15:]
             static_count = sum(1 for s in recent_history if s == ObstacleState.STATIC)
@@ -357,29 +349,26 @@ class MultiObjectTracker:
             static_count = 0
             dynamic_count = 0
         
-        # ⭐⭐⭐ تصمیم‌گیری چند سطحی
-        
         # سطح 1: قطعاً STATIC
-        if (avg_velocity < 0.12 and           # میانگین بسیار کم
-            max_velocity < 0.20 and           # حداکثر هم کم
-            std_velocity < 0.10 and           # پایداری بالا
-            min_velocity < 0.15):             # حداقل هم کم
+        if (avg_velocity < 0.15 and
+            max_velocity < 0.25 and
+            std_velocity < 0.12):
             return ObstacleState.STATIC
         
         # سطح 2: قطعاً DYNAMIC
-        elif (avg_velocity > 0.40 or          # میانگین بالا
-              max_velocity > 0.60 or          # حداکثر بالا
-              (avg_velocity > 0.25 and std_velocity > 0.15)):  # سرعت متوسط با نوسان
+        elif (avg_velocity > 0.45 or
+              max_velocity > 0.65 or
+              (avg_velocity > 0.30 and std_velocity > 0.15)):
             return ObstacleState.DYNAMIC
         
-        # سطح 3: استفاده از رای‌گیری
-        elif static_count > dynamic_count + 7:
+        # سطح 3: رای‌گیری
+        elif static_count > dynamic_count + 5:
             return ObstacleState.STATIC
-        elif dynamic_count > static_count + 7:
+        elif dynamic_count > static_count + 5:
             return ObstacleState.DYNAMIC
         
-        # سطح 4: محافظه‌کارانه - بر اساس میانگین
-        elif avg_velocity < 0.18:
+        # سطح 4: بر اساس میانگین
+        elif avg_velocity < 0.25:
             return ObstacleState.STATIC
         else:
             return ObstacleState.DYNAMIC
@@ -413,9 +402,6 @@ class MultiObjectTracker:
     def _compute_hysdg_esd(self, pos_world: np.ndarray, vel_world: np.ndarray, 
                           agv_pos: np.ndarray, agv_vel: np.ndarray, 
                           prev_d_eq: Optional[float], lambda_esd: float = 1.0):
-        """
-        محاسبه HySDG-ESD
-        """
         r_t = pos_world - agv_pos
         u_t = vel_world - agv_vel
         
@@ -432,8 +418,8 @@ class MultiObjectTracker:
         else:
             d_dot = (d_eq - prev_d_eq) / self.dt
 
-        # state برای history
-        if u_norm < 0.20 and abs(d_dot) < 0.15:
+        # ⭐ آستانه کمتر برای state history
+        if u_norm < 0.30 and abs(d_dot) < 0.25:
             state = ObstacleState.STATIC
         else:
             state = ObstacleState.DYNAMIC
@@ -461,9 +447,6 @@ class AGVObstacleDetectionSystem:
         self.tracker = MultiObjectTracker(dt)
 
     def process_scan(self, ranges, angles, agv_pos, agv_vel, agv_heading):
-        """
-        ⭐⭐⭐ حالا agv_heading هم لازم است
-        """
         points = self.lidar_processor.parse_scan(ranges, angles)
         clusters = self.lidar_processor.cluster_points(points)
         self.tracker.update(clusters, agv_pos, agv_vel, agv_heading)
@@ -476,3 +459,74 @@ class AGVObstacleDetectionSystem:
     def get_dynamic_obstacles(self):
         return [obs for obs in self.tracker.get_obstacles() 
                 if obs.state == ObstacleState.DYNAMIC]
+    
+    # ✅ پیشنهاد 2: API تمیز برای کار همکاران
+    def export_state(self) -> List[dict]:
+        """
+        صادرات وضعیت کامل سیستم به فرمت JSON-friendly
+        
+        Returns:
+            لیست دیکشنری‌ها حاوی اطلاعات کامل هر مانع
+        
+        Example:
+            >>> state = system.export_state()
+            >>> print(state)
+            [
+                {
+                    "id": 0,
+                    "pos": [10.5, 2.3],
+                    "vel": [1.2, -0.5],
+                    "state": "DYNAMIC",
+                    "d_eq": 8.7,
+                    "d_dot": -0.3,
+                    "confidence": 0.95,
+                    "velocity_magnitude": 1.3,
+                    "velocity_history": [1.1, 1.2, 1.3],
+                    "state_history": ["UNKNOWN", "DYNAMIC", "DYNAMIC"]
+                }
+            ]
+        """
+        obstacles = self.tracker.get_obstacles()
+        
+        export_data = []
+        for obs in obstacles:
+            export_data.append({
+                "id": obs.id,
+                "pos": obs.center.tolist(),
+                "vel": obs.velocity.tolist(),
+                "state": obs.state.value,
+                "d_eq": float(obs.d_eq),
+                "d_dot": float(obs.d_dot),
+                "confidence": float(obs.confidence),
+                "velocity_magnitude": float(np.linalg.norm(obs.velocity)),
+                "velocity_history": [float(v) for v in obs.velocity_history],
+                "state_history": [s.value for s in obs.state_history],
+                "last_seen": int(obs.last_seen),
+                "num_points": len(obs.points)
+            })
+        
+        return export_data
+    
+    def get_system_statistics(self) -> dict:
+        """
+        آمار کلی سیستم برای مانیتورینگ
+        
+        Returns:
+            دیکشنری حاوی آمارهای کلی
+        """
+        obstacles = self.tracker.get_obstacles()
+        
+        static_obs = [o for o in obstacles if o.state == ObstacleState.STATIC]
+        dynamic_obs = [o for o in obstacles if o.state == ObstacleState.DYNAMIC]
+        unknown_obs = [o for o in obstacles if o.state == ObstacleState.UNKNOWN]
+        
+        return {
+            "total_obstacles": len(obstacles),
+            "static_count": len(static_obs),
+            "dynamic_count": len(dynamic_obs),
+            "unknown_count": len(unknown_obs),
+            "average_confidence": np.mean([o.confidence for o in obstacles]) if obstacles else 0.0,
+            "critical_obstacles": len([o for o in obstacles if o.d_eq < 2.0]),
+            "tracker_time": self.tracker.current_time,
+            "active_kalman_filters": len(self.tracker.kalman_filters)
+        }
