@@ -40,11 +40,17 @@ Pipeline: 1. LiDAR simulation\
 ## 📂 Repository Structure
 
 AGV-Dynamic-Obstacle-Detection/ 
+
 ├── HySDG_EKF_Hdbscan_Enhanced.py/
+
 ├── AGV_MOVING_SYSTEM_HDBSCAN_Enhanced.py/
+
 ├── README.md/
+
 ├── requirements.txt/
+
 ├── figures/
+
 └── results/
 
 ------------------------------------------------------------------------
