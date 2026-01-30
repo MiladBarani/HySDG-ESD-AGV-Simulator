@@ -12,8 +12,8 @@ import json
 from datetime import datetime
 sys.stdout.reconfigure(encoding='utf-8')
 
-#from HySDG_EKF_hdbscan import AGVObstacleDetectionSystem
-from HySDG_EKF_Hdbscan_Fast_Enhanced import AGVObstacleDetectionSystem
+#from HySDG_EKF_dbscan import AGVObstacleDetectionSystem
+from HySDG_EKF_dbscan_Fast_Enhanced import AGVObstacleDetectionSystem
 
 # =========================
 # LiDAR Simulator
@@ -686,13 +686,13 @@ def on_close(event):
     # ✅ ذخیره CSV
     if obstacle_log:
         df = pd.DataFrame(obstacle_log)
-        csv_filename = f"AGV/obstacle_log_scenario_{current_scenario}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        csv_filename = f"./obstacle_log_scenario_{current_scenario}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         df.to_csv(csv_filename, index=False, encoding='utf-8')
         print(f"✅ Obstacle log saved to: {csv_filename}")
         print(f"   Total records: {len(obstacle_log)}")
     
     # ✅ ذخیره متریک‌های علمی
-    json_filename = f"AGV/scientific_metrics_scenario_{current_scenario}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    json_filename = f"./scientific_metrics_scenario_{current_scenario}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     metrics = scientific_metrics.export_to_json(json_filename)
     print(f"✅ Scientific metrics saved to: {json_filename}")
     
